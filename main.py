@@ -108,8 +108,9 @@ async def handler_veaify_registration_response(request: Request):
     global current_registration_challenge
     global logged_in_user_id
 
-    body = await request.json()
-    credential = json.dumps(body, indent=4)
+    body = await request.json()  # returns a json object
+    credential = json.dumps(body, indent=4)  # returns  json string
+    credential = json.loads(credential)
 
     print(credential)
 
@@ -128,7 +129,7 @@ async def handler_veaify_registration_response(request: Request):
         id=verification.credential_id,
         public_key=verification.credential_public_key,
         sign_count=verification.sign_count,
-        transports=json.loads(body).get("transports", []),
+        transports=credential["response"]["transports"],
     )
 
     user.credentials.append(new_credential)
