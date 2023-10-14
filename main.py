@@ -80,10 +80,10 @@ def handler_generate_registration_options(username: str):
         rp_name="roll call",
         user_id=str(user.id),
         user_name=user.username,
-        # user_display_name="Display Name",
-        # attestation=AttestationConveyancePreference.DIRECT,
+        user_display_name="Display Name",
+        attestation=AttestationConveyancePreference.DIRECT,
         authenticator_selection=AuthenticatorSelectionCriteria(
-            # authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
             resident_key=ResidentKeyRequirement.REQUIRED,
         ),
         challenge=os.urandom(12),
@@ -95,7 +95,7 @@ def handler_generate_registration_options(username: str):
             COSEAlgorithmIdentifier.ECDSA_SHA_256,
             COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
         ],
-        # timeout=12000
+        timeout=12000
     )
     current_registration_challenge = options.challenge
     print(current_registration_challenge)
@@ -169,7 +169,7 @@ async def hander_verify_authentication_response(request: Request):
     try:
         credential = json.dumps(body, indent=4)  # returns  json string
         credential = json.loads(credential)
-
+        print(credential)
         # Find the user's corresponding public key
         user = in_memory_db[logged_in_user_id]
         user_credential = None
