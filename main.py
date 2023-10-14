@@ -1,4 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
 import uvicorn
 from models import Credential, UserAccount
 from typing import Dict
@@ -41,6 +43,14 @@ current_registration_challenge = None
 current_authentication_challenge = None
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get(path="/")
