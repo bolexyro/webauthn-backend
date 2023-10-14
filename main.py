@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
+import uvicorn
 from models import Credential, UserAccount
 from typing import Dict
 import random
@@ -120,3 +121,6 @@ def handler_verify_registration_response(request: Request):
     user.credentials.append(new_credential)
     print(user)
     return JSONResponse(content={"verified": True})
+
+
+uvicorn.run(app=app, host="0.0.0.0")
