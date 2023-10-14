@@ -30,7 +30,7 @@ from webauthn.helpers.cose import COSEAlgorithmIdentifier
 import os
 load_dotenv(".env")
 
-origin = "http://localhost:5000"
+origin = os.getenv("ORIGIN")
 rp_id = os.getenv("RP_ID")
 
 # A simple way to persist credentials by user ID
@@ -109,29 +109,30 @@ async def handler_veaify_registration_response(request: Request):
     global logged_in_user_id
 
     body = await request.json()
-    print(body)
+    credential = json.dumps(body, indent=4)
 
-    # try:
-    #     credential = RegistrationCredential.parse_raw(body)
-    #     verification = verify_registration_response(
-    #         credential=credential,
-    #         expected_challenge=current_registration_challenge,
-    #         expected_rp_id=rp_id,
-    #         expected_origin=origin,
-    #     )
-    # except Exception as err:
-    #     raise HTTPException(status_code=400, detail=str(err))
+    print(credential)
 
-    # user = in_memory_db[logged_in_user_id]
-    # new_credential = Credential(
-    #     id=verification.credential_id,
-    #     public_key=verification.credential_public_key,
-    #     sign_count=verification.sign_count,
-    #     transports=json.loads(body).get("transports", []),
-    # )
+    try:
+        verification = verify_registration_response(
+            credential=credential,
+            expected_challenge=current_registration_challenge,
+            expected_rp_id=rp_id,
+            expected_origin=origin,
+        )
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
-    # user.credentials.append(new_credential)
-    # print(user)
+    user = in_memory_db[logged_in_user_id]
+    new_credential = Credential(
+        id=verification.credential_id,
+        public_key=verification.credential_public_key,
+        sign_count=verification.sign_count,
+        transports=json.loads(body).get("transports", []),
+    )
+
+    user.credentials.append(new_credential)
+    print(user)
     return JSONResponse(content={"verified": True})
 
 
