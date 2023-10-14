@@ -125,6 +125,7 @@ async def handler_veaify_registration_response(request: Request):
         raise HTTPException(status_code=400, detail=str(err))
 
     user = in_memory_db[logged_in_user_id]
+    # I am meant to store the credential and the user attached to this credential
     new_credential = Credential(
         id=verification.credential_id,
         public_key=verification.credential_public_key,
@@ -136,5 +137,65 @@ async def handler_veaify_registration_response(request: Request):
     print(user)
     return JSONResponse(content={"verified": True})
 
+
+@app.get(path="/generate-authentication-options")
+def handler_generate_authentication_options():
+    global current_authentication_challenge
+    global logged_in_user_id
+
+    user = in_memory_db[logged_in_user_id]
+
+    options = generate_authentication_options(
+        rp_id=rp_id,
+        allow_credentials=[
+            {"type": "public-key", "id": cred.id, "transports": cred.transports}
+            for cred in user.credentials
+        ],
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+
+    current_authentication_challenge = options.challenge
+
+    return options_to_json(options)
+
+
+@app.post("/verify-authentication-response")
+async def hander_verify_authentication_response(request: Request):
+    global current_authentication_challenge
+    global logged_in_user_id
+
+    body = await request.json()  # returns a json object
+
+    try:
+        credential = json.dumps(body, indent=4)  # returns  json string
+        credential = json.loads(credential)
+
+        # Find the user's corresponding public key
+        user = in_memory_db[logged_in_user_id]
+        user_credential = None
+        for _cred in user.credentials:
+            if _cred.id == credential.raw_id:
+                user_credential = _cred
+
+        if user_credential is None:
+            raise Exception("Could not find corresponding public key in DB")
+
+        # Verify the assertion
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=current_authentication_challenge,
+            expected_rp_id=rp_id,
+            expected_origin=origin,
+            credential_public_key=user_credential.public_key,
+            credential_current_sign_count=user_credential.sign_count,
+            require_user_verification=True,
+        )
+    except Exception as err:
+        return {"verified": False, "msg": str(err), "status": 400}
+
+    # Update our credential's sign count to what the authenticator says it is now
+    user_credential.sign_count = verification.new_sign_count
+
+    return {"verified": True}
 
 uvicorn.run(app=app, host="0.0.0.0")
