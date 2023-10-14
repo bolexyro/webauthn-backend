@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
+from dotenv import load_dotenv
 import uvicorn
 from models import Credential, UserAccount
 from typing import Dict
@@ -28,9 +28,10 @@ from webauthn.helpers.structs import (
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 import os
+load_dotenv(".env")
 
 origin = "http://localhost:5000"
-rp_id = "localhost"
+rp_id = os.getenv("RP_ID")
 
 # A simple way to persist credentials by user ID
 in_memory_db: Dict[str, UserAccount] = {}
