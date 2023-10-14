@@ -172,6 +172,7 @@ async def hander_verify_authentication_response(request: Request):
         print(credential)
         # Find the user's corresponding public key
         user = in_memory_db[logged_in_user_id]
+        print(f"user: {user}")
         user_credential = None
         for _cred in user.credentials:
             if _cred.id == credential["rawId"]:
@@ -181,6 +182,7 @@ async def hander_verify_authentication_response(request: Request):
             raise Exception("Could not find corresponding public key in DB")
 
         # Verify the assertion
+        print(f"user_credential: {user_credential}")
         verification = verify_authentication_response(
             credential=credential,
             expected_challenge=current_authentication_challenge,
