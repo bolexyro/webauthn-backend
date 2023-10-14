@@ -104,11 +104,11 @@ def handler_generate_registration_options(username: str):
 
 
 @app.post(path="/verify-registration-response")
-def handler_verify_registration_response(request: Request):
+async def handler_veaify_registration_response(request: Request):
     global current_registration_challenge
     global logged_in_user_id
 
-    body = request.body()
+    body = await request.json()
     print(body)
 
     # try:
