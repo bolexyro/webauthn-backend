@@ -174,7 +174,7 @@ async def hander_verify_authentication_response(request: Request):
         user = in_memory_db[logged_in_user_id]
         user_credential = None
         for _cred in user.credentials:
-            if _cred.id == credential.raw_id:
+            if _cred.id == credential["rawId"]:
                 user_credential = _cred
 
         if user_credential is None:
