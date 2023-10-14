@@ -108,28 +108,29 @@ def handler_verify_registration_response(request: Request):
     global logged_in_user_id
 
     body = request.body()
+    print(body)
 
-    try:
-        credential = RegistrationCredential.parse_raw(body)
-        verification = verify_registration_response(
-            credential=credential,
-            expected_challenge=current_registration_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
-        )
-    except Exception as err:
-        raise HTTPException(status_code=400, detail=str(err))
+    # try:
+    #     credential = RegistrationCredential.parse_raw(body)
+    #     verification = verify_registration_response(
+    #         credential=credential,
+    #         expected_challenge=current_registration_challenge,
+    #         expected_rp_id=rp_id,
+    #         expected_origin=origin,
+    #     )
+    # except Exception as err:
+    #     raise HTTPException(status_code=400, detail=str(err))
 
-    user = in_memory_db[logged_in_user_id]
-    new_credential = Credential(
-        id=verification.credential_id,
-        public_key=verification.credential_public_key,
-        sign_count=verification.sign_count,
-        transports=json.loads(body).get("transports", []),
-    )
+    # user = in_memory_db[logged_in_user_id]
+    # new_credential = Credential(
+    #     id=verification.credential_id,
+    #     public_key=verification.credential_public_key,
+    #     sign_count=verification.sign_count,
+    #     transports=json.loads(body).get("transports", []),
+    # )
 
-    user.credentials.append(new_credential)
-    print(user)
+    # user.credentials.append(new_credential)
+    # print(user)
     return JSONResponse(content={"verified": True})
 
 
