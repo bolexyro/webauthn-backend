@@ -1,3 +1,4 @@
+import base64
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -169,13 +170,22 @@ async def hander_verify_authentication_response(request: Request):
     try:
         credential = json.dumps(body, indent=4)  # returns  json string
         credential = json.loads(credential)
+        # the p
         print(credential)
         # Find the user's corresponding public key
         user = in_memory_db[logged_in_user_id]
         print(f"user: {user}")
         user_credential = None
+
+        # the problem with this code is that the _cred.id is a byte and credential["rawId "] is like a string so they would never be equal to each other
+        # the other guy i think what he didd was like AuthenticationCredential.parse_raw(body) but this method is deprecated so i can either look for a replacemnt
+        # or sha try to parse the string into like a byte.
+
+        # Assuming credential["rawId"] is a base64url-encoded string
+        raw_id_bytes = base64.urlsafe_b64decode(credential["rawId"].encode())
+
         for _cred in user.credentials:
-            if _cred.id == credential["rawId"]:
+            if _cred.id == raw_id_bytes:
                 user_credential = _cred
 
         if user_credential is None:
