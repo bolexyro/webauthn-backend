@@ -15,6 +15,7 @@ from webauthn import (
     generate_authentication_options,
     verify_authentication_response,
     options_to_json,
+    base64url_to_bytes
 )
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
@@ -170,11 +171,10 @@ async def hander_verify_authentication_response(request: Request):
     try:
         credential = json.dumps(body, indent=4)  # returns  json string
         credential = json.loads(credential)
-        # the p
-        print(credential)
+        print(f"\n\n\ncredential: {credential}\n\n\n")
         # Find the user's corresponding public key
         user = in_memory_db[logged_in_user_id]
-        print(f"user: {user}")
+        print(f"user: {user}\n\n\n")
         user_credential = None
 
         # the problem with this code is that the _cred.id is a byte and credential["rawId "] is like a string so they would never be equal to each other
@@ -182,7 +182,7 @@ async def hander_verify_authentication_response(request: Request):
         # or sha try to parse the string into like a byte.
 
         # Assuming credential["rawId"] is a base64url-encoded string
-        raw_id_bytes = base64.urlsafe_b64decode(credential["rawId"].encode())
+        raw_id_bytes = base64url_to_bytes(credential["rawId"])
 
         for _cred in user.credentials:
             if _cred.id == raw_id_bytes:
@@ -192,7 +192,7 @@ async def hander_verify_authentication_response(request: Request):
             raise Exception("Could not find corresponding public key in DB")
 
         # Verify the assertion
-        print(f"user_credential: {user_credential}")
+        print(f"_cred: {_cred}")
         verification = verify_authentication_response(
             credential=credential,
             expected_challenge=current_authentication_challenge,
@@ -203,6 +203,7 @@ async def hander_verify_authentication_response(request: Request):
             require_user_verification=True,
         )
     except Exception as err:
+        print(err)
         return {"verified": False, "msg": str(err), "status": 400}
 
     # Update our credential's sign count to what the authenticator says it is now
