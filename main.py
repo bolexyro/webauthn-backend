@@ -1,22 +1,4 @@
-import base64
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-import uvicorn
-from models import Credential, UserAccount
-from typing import Dict
-import random
-import json
-from starlette.responses import JSONResponse
-
-from webauthn import (
-    generate_registration_options,
-    verify_registration_response,
-    generate_authentication_options,
-    verify_authentication_response,
-    options_to_json,
-    base64url_to_bytes
-)
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     UserVerificationRequirement,
@@ -28,22 +10,44 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     ResidentKeyRequirement
 )
-from webauthn.helpers.cose import COSEAlgorithmIdentifier
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+    base64url_to_bytes
+)
+import base64
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import uvicorn
+from models import Credential, UserAccount
+from typing import Dict
+import random
+import json
+from starlette.responses import JSONResponse
+import psycopg2
 import os
+load_dotenv(".env")
+
+db = os.getenv("DB_NAME")
+db_username = os.getenv("DB_USERNAME")
+db_password = os.getenv("DB_PASSWORD")
+db_host = os.getenv("DB_INTERNAL_HOST")
+db_port = os.getenv("DB_PORT")
+
+connection_params = {"database": db,
+                     "user": db_username,
+                     "host": db_host,
+                     "password": db_password,
+                     "port": db_port}
+
 load_dotenv(".env")
 
 origin = os.getenv("ORIGIN")
 rp_id = os.getenv("RP_ID")
-
-# A simple way to persist credentials by user ID
-in_memory_db: Dict[str, UserAccount] = {}
-
-# Register our sample user
-
-
-# A simple way to persist challenges until response verification
-current_registration_challenge = None
-current_authentication_challenge = None
 
 app = FastAPI()
 
@@ -63,58 +67,57 @@ def home():
 
 @app.get(path="/generate-registration-options")
 def handler_generate_registration_options(username: str):
-    # if mosh sends me the username and lets say the user_id is some number
     global current_registration_challenge, logged_in_user_id
     logged_in_user_id = random.randint(1, 1000000)
+    current_registration_challenge = os.urandom(32)
 
-    print(f"User ID: {logged_in_user_id}")
-    print(f"Username: {username}")
+    with psycopg2.connect(**connection_params) as connection:
+        with connection.cursor() as cursor:
+            insert_into_students_table_sql = "INSERT INTO students (user_id, username, reg_challenge) VALUES (%s, %s, %s)"
+            cursor.execute(insert_into_students_table_sql,
+                           (logged_in_user_id, username, current_registration_challenge))
+            connection.commit()
 
-    in_memory_db[logged_in_user_id] = UserAccount(
-        id=logged_in_user_id,
-        username=username,
-        credentials=[],
-    )
-    user = in_memory_db[logged_in_user_id]
-    print(user)
     options = generate_registration_options(
         rp_id=rp_id,
         rp_name="roll call",
-        user_id=str(user.id),
-        user_name=user.username,
-        user_display_name="Display Name",
+        user_id=str(logged_in_user_id),
+        user_name=username,
+        user_display_name=username,
         attestation=AttestationConveyancePreference.DIRECT,
         authenticator_selection=AuthenticatorSelectionCriteria(
             authenticator_attachment=AuthenticatorAttachment.PLATFORM,
             resident_key=ResidentKeyRequirement.REQUIRED,
         ),
-        challenge=os.urandom(12),
-        exclude_credentials=[
-            {"id": cred.id, "transports": cred.transports, "type": "public-key"}
-            for cred in user.credentials
-        ],
+        challenge=current_registration_challenge,
+        exclude_credentials=[],
         supported_pub_key_algs=[
             COSEAlgorithmIdentifier.ECDSA_SHA_256,
             COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
         ],
-        timeout=12000
+        timeout=30000
     )
-    current_registration_challenge = options.challenge
-    print(current_registration_challenge)
 
     return options_to_json(options)
 
 
 @app.post(path="/verify-registration-response")
-async def handler_veaify_registration_response(request: Request):
-    global current_registration_challenge
-    global logged_in_user_id
+async def handler_veaify_registration_response(username: str, request: Request):
 
     body = await request.json()  # returns a json object
     credential = json.dumps(body, indent=4)  # returns  json string
     credential = json.loads(credential)
 
-    print(credential)
+    select_user_info_from_students_table_sql = "SELECT reg_challenge FROM students WHERE username = %s"
+    with psycopg2.connect(**connection_params) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                select_user_info_from_students_table_sql, (username, ))
+            result = cursor.fetchone()
+            if not result:
+                response_data = {"message": "Username not found."}
+                return JSONResponse(status_code=404, content=response_data)
+            current_registration_challenge = result[0]
 
     try:
         verification = verify_registration_response(
@@ -126,88 +129,111 @@ async def handler_veaify_registration_response(request: Request):
     except Exception as err:
         raise HTTPException(status_code=400, detail=str(err))
 
-    user = in_memory_db[logged_in_user_id]
     # I am meant to store the credential and the user attached to this credential
-    new_credential = Credential(
-        id=verification.credential_id,
-        public_key=verification.credential_public_key,
-        sign_count=verification.sign_count,
-        transports=credential["response"]["transports"],
-    )
 
-    user.credentials.append(new_credential)
-    print(user)
+    transports: list = credential["response"]["transports"]
+    transports_string = ""
+    lenght_transports = len(transports)
+    for i, transport in enumerate(transports):
+        transports_string += transport
+        if i != lenght_transports - 1:
+            transports_string += ","
+
+    insert_into_students_table_sql = "INSERT INTO students (credential_id, public_key, sign_count, transports) VALUES (%s, %s, %s, %s)"
+    with psycopg2.connect(**connection_params) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(insert_into_students_table_sql, (verification.credential.id,
+                           verification.credential_public_key, verification.sign_count, transports_string))
+            connection.commit()
+
     return JSONResponse(content={"verified": True})
 
 
 @app.get(path="/generate-authentication-options")
-def handler_generate_authentication_options():
-    global current_authentication_challenge
-    global logged_in_user_id
+def handler_generate_authentication_options(username: str):
+    authentication_challenge = os.urandom(32)
 
-    user = in_memory_db[logged_in_user_id]
+    with psycopg2.connect(**connection_params) as connection:
+        with connection.cursor() as cursor:
+            select_user_info_from_students_table_sql = "SELECT credential_id, transports FROM students WHERE username = %s"
+            cursor.execute(
+                select_user_info_from_students_table_sql, (username, ))
+            result = cursor.fetchone()
+
+            if not result:
+                response_data = {"message": "Username not found."}
+                return JSONResponse(status_code=404, content=response_data)
+
+            credential_id, transports = result
+            insert_auth_challenge_into_students_table_sql = "INSERT INTO students (auth_challenge) VALUES (%s) WHERE username = %s"
+            cursor.execute(insert_auth_challenge_into_students_table_sql,
+                           (authentication_challenge, username))
+            connection.commit()
+
+    transports = transports.split(",")
 
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=[
-            {"type": "public-key", "id": cred.id, "transports": cred.transports}
-            for cred in user.credentials
+            {"type": "public-key", "id": credential_id, "transports": transports}
         ],
         user_verification=UserVerificationRequirement.REQUIRED,
+        challenge=authentication_challenge
     )
-
-    current_authentication_challenge = options.challenge
 
     return options_to_json(options)
 
 
 @app.post("/verify-authentication-response")
-async def hander_verify_authentication_response(request: Request):
-    global current_authentication_challenge
-    global logged_in_user_id
-
+async def hander_verify_authentication_response(username: str, request: Request):
     body = await request.json()  # returns a json object
 
     try:
         credential = json.dumps(body, indent=4)  # returns  json string
         credential = json.loads(credential)
-        print(f"\n\n\ncredential: {credential}\n\n\n")
         # Find the user's corresponding public key
-        user = in_memory_db[logged_in_user_id]
-        print(f"user: {user}\n\n\n")
-        user_credential = None
-
-        # the problem with this code is that the _cred.id is a byte and credential["rawId "] is like a string so they would never be equal to each other
-        # the other guy i think what he didd was like AuthenticationCredential.parse_raw(body) but this method is deprecated so i can either look for a replacemnt
-        # or sha try to parse the string into like a byte.
 
         # Assuming credential["rawId"] is a base64url-encoded string
         raw_id_bytes = base64url_to_bytes(credential["rawId"])
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                select_user_info_from_students_table_sql = "SELECT credential_id, auth_challenge, public_key, sign_count FROM students WHERE username = %s"
+                cursor.execute(
+                    select_user_info_from_students_table_sql, (username, ))
+                result = cursor.fetchone()
 
-        for _cred in user.credentials:
-            if _cred.id == raw_id_bytes:
-                user_credential = _cred
+                if not result:
+                    response_data = {"message": "Username not found."}
+                    return JSONResponse(status_code=404, content=response_data)
+                credential_id, authentication_challenge, public_key, sign_count = result
+
+        if credential_id == raw_id_bytes:
+            user_credential = True  # we could set it to anything as long as it is not None
 
         if user_credential is None:
             raise Exception("Could not find corresponding public key in DB")
 
         # Verify the assertion
-        print(f"_cred: {_cred}")
         verification = verify_authentication_response(
             credential=credential,
-            expected_challenge=current_authentication_challenge,
+            expected_challenge=authentication_challenge,
             expected_rp_id=rp_id,
             expected_origin=origin,
-            credential_public_key=user_credential.public_key,
-            credential_current_sign_count=user_credential.sign_count,
+            credential_public_key=public_key,
+            credential_current_sign_count=sign_count,
             require_user_verification=True,
         )
+        # Update our credential's sign count to what the authenticator says it is now
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                update_user_sign_count_in_students_table_sql = "UPDATE students SET sign_count = %s WHERE username=%s"
+                cursor.execute(update_user_sign_count_in_students_table_sql,
+                               (verification.new_sign_count, username))
+                connection.commit()
+
     except Exception as err:
         print(err)
         return {"verified": False, "msg": str(err), "status": 400}
-
-    # Update our credential's sign count to what the authenticator says it is now
-    user_credential.sign_count = verification.new_sign_count
 
     return {"verified": True}
 
